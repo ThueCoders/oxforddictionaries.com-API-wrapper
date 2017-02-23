@@ -1,16 +1,28 @@
 #!/bin/env python3
 
-class BadRequestException(Exception):
-	pass
 
-class WordNotFoundException(Exception):
-	pass
 
-class AuthenticationError(Exception):
-	pass
+class OxfordDictException(Exception):
+    def __init__(self, statuscode, msg):
+        self.statuscode = statuscode
+        self.msg = msg
 
-class ServiceUnavailableError(Exception):
-	pass
 
-class UnsupportedLanguageException(Exception):
-	pass
+class BadRequestException(OxfordDictException):
+    pass
+
+
+class WordNotFoundException(OxfordDictException):
+    pass
+
+
+class AuthenticationError(OxfordDictException):
+    pass
+
+
+class ServiceUnavailableError(OxfordDictException):
+    pass
+
+
+class UnsupportedLanguageException(OxfordDictException):
+    pass
