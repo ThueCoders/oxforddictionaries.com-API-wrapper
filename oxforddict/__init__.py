@@ -2,9 +2,9 @@
 from .oxfordwrapper import OxfordDictionary
 
 
-__author__ = "Yegor Homyachkov"
+__author__ = "Yegor H."
 
-__version__ = "v0.1"
+__version__ = "v0.2"
 
 __date__ = "06.01.2017"
 
