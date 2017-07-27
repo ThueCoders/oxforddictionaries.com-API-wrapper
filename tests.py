@@ -60,7 +60,6 @@ class TestOxfordDictLib(unittest.TestCase):
         pass
 
 
-
 if __name__ == '__main__':
     if len(argv[1:]) == 0 or '-h' in argv or '--help' in argv:
         print("Usage: {} app_key='YOUR APP KEY' app_id='YOUR APP ID'".format(argv[0]))
