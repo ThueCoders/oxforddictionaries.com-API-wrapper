@@ -1,4 +1,3 @@
-#!/bin/env python3.5
 import json
 import http.client
 
@@ -19,34 +18,35 @@ class OxfordDictionary(object):
         self.app_key = app_key
         self.app_id = app_id
         self.setlang(lang)
+        self._base_url = '/api/v1'
         self._httpsconn = http.client.HTTPSConnection(
             "od-api.oxforddictionaries.com")
+
 
     def __repr__(self):
         return "<OxfordDictionary(lang={})>".format(self.lang)
 
+
     def __str__(self):
         return self.__repr__()
 
-    def __enter__(self):
-        return self
 
-    def __exit__(self, exc_type, exc_code, exc_tb):
+    def _check_lang(self, lang):
+        return ('en', 'es', 'ms', 'sw', 'tn',
+                'nso', 'lv', 'id', 'ur', 'zu',
+                'ro', 'hi').__contains__(lang.lower())
+
+
+    def close(self):
         self._httpsconn.close()
-        if exc_type is None:
-            return
-        return False
 
     def setlang(self, lang):
         # Check for supported languages
-        if lang.lower() not in ('en', 'es', 'ms', 'sw', 'tn', 'nso',
-                                'lv', 'id', 'ur', 'zu', 'ro', 'hi'):
-            raise UnsupportedLanguageException(0, "Current language "
-                                               "is not supported")
-
+        if not self._check_lang(lang):
+            raise UnsupportedLanguageException(0, 'Current language '
+                                               'is not supported')
         self.lang = lang
-        self._base_url = 'https://od-api.oxforddictionaries.com:443/api/v1'
-        # URL/{category}/{source_lang}/{word}/{options}
+
 
     def _parseword(self, word):
         # Convert unicode cahracters to HTTP form (%c3%b1)
@@ -55,14 +55,39 @@ class OxfordDictionary(object):
         # Convert word to required form
         return word.strip().lower().replace(' ', '_')
 
-    def _request(self, *args,  category='', arguments='', set_lang=None):
-        if set_lang is None:
-            set_lang = self.lang
 
-        self._httpsconn.request('GET', '/'.join([self._base_url,
-                                category, set_lang, *args]) + arguments,
-                                headers={"app_id": self.app_id,
-                                "app_key": self.app_key})
+    def _request(self, section, *a, **kw):
+        """
+        1. section
+        2. lang (optional)
+        3. word
+        4. args
+        5. additional args...
+        """
+        if 'set_lang' in kw:
+            set_lang = self.lang
+            del kw['set_lang']
+
+        # build request:
+        url_args = [section]
+        url_params = ''
+
+        if a:
+            url_args.extend(a)
+
+        prepared_url = '/'.join([self._base_url, *url_args])
+
+        if kw:
+            url_params = '&'.join('{}={}'.format(k, v) for k, v in kw.items())
+            prepared_url += '?' + url_params
+
+        self._httpsconn.request('GET', prepared_url,
+                                headers={
+                                    "Accept": "application/json",
+                                    "app_id": self.app_id,
+                                    "app_key": self.app_key
+                                    }
+                                )
         r = self._httpsconn.getresponse()
         # https://developer.oxforddictionaries.com/documentation/response-codes
         if r.status != 200:
@@ -82,24 +107,8 @@ class OxfordDictionary(object):
 
         return json.loads(r.read().decode('utf-8'))
 
-    def entries(self, word, *args):
-        """Retrieve available dictionary entries for a given word and
-        language.
-        args can be:
-        - regions={region}
-        - {filters}
-        - definitions
-        - examples
-        - pronunciations
 
-        For example:
-        d.entries('cat', 'examples')
-
-        """
-
-        return self._request(self._parseword(word), *args, category='entries')
-
-    def lemmatron(self, word, *filters):
+    def lemmatron(self, word, filters=''):
         """Retrieve available lemmas for a given inflected wordform.
         :word: string with the word
         :*filters: (optional) filter results by categories. Separate
@@ -110,8 +119,68 @@ class OxfordDictionary(object):
 
         """
 
-        return self._request(self._parseword(word), *filters,
-                             category='inflections')
+        req_args = ['inflections', self.lang, word]
+        if filters:
+            req_args.append(filters)
+
+        return self._request(*req_args)
+
+
+    def entries(self, word, arg='', regions='', filters=''):
+        """Retrieve available dictionary entries for a given word and
+        language.
+        Possible arguments:
+        - regions={region}
+        - {filters}
+
+        - definitions
+        - examples
+        - pronunciations
+
+        For example:
+        d.entries('cat', 'examples')
+        """
+
+        req_args = ['entries', self.lang, word]
+
+        if arg:
+            req_args.append(arg)
+        if regions:
+            req_args.append('regions={}'.format(regions))
+        if filters:
+            req_args.append('filters={}'.format(filters))
+
+        return self._request(*req_args)
+
+    def thesaurus(self, word, antonyms=False, synonyms=False):
+        arg = []
+        if antonyms:
+            arg.append('antonyms')
+        if synonyms:
+            arg.append('synonyms')
+
+        return self._request('entries', self.lang, word, ';'.join(arg))
+
+
+    def search(self, query, translations='', **kw):
+        """Retrieve available results for a search query and language.
+        :query: Search string.
+        :prefix: Set prefix to true if you'd like to get results only
+        starting with search string.
+        :regions: Filter words with specific region(s) E.g., regions=us.
+        :limit: Limit the number of results per response. Default and
+        maximum limit is 5000.
+        :offset: Offset the start number of the result.
+
+        """
+        req_args = ['search', self.lang]
+        if translations and self._check_lang(translations):
+            req_args.append(
+                'translations={}'.format(translations)
+            )
+
+        return self._request(*req_args, q=query, **kw)
+
 
     def translation(self, word, target_lang):
         """Translate the word to target_lang
@@ -121,10 +190,13 @@ class OxfordDictionary(object):
         will be thrown
 
         """
-        return self._request(self._parseword(word), 'translations=%s' %
-                             target_lang, category='entries')
 
-    def wordlist(self, *filters, **advanced_params):
+        return self._request(
+            'entries', self.lang, word, 'translations={}'.format(target_lang)
+        )
+
+
+    def wordlist(self, **filters):
         """Retrieve list of words for particular domain, lexical
         category register and/or region.
         :*filters: Semicolon separated list of wordlist parameters,
@@ -154,39 +226,9 @@ class OxfordDictionary(object):
             "lexicalCategory=Noun;domains=sport"
 
         """
-        return self._request(*filters, category='wordlist',
-            arguments="?" + "&".join(["%s=%s" % (k, v)
-                                      for k, v in advanced_params.items()]))
+        
+        return self._request('wordlist', self.lang, **filters)
 
-    def thesaurus(self, word, antonyms=False, synonyms=False):
-        if antonyms:
-            op = "antonyms"
-        elif synonyms:
-            op = "synonyms"
-        else:
-            op = "antonyms;synonyms"
-
-        return self._request(self._parseword(word), op, category='entries')
-
-    def search(self, query, prefix=False, regions=None,
-               limit=5000, offset=None):
-        """Retrieve available results for a search query and language.
-        :query: Search string.
-        :prefix: Set prefix to true if you'd like to get results only
-        starting with search string.
-        :regions: Filter words with specific region(s) E.g., regions=us.
-        :limit: Limit the number of results per response. Default and
-        maximum limit is 5000.
-        :offset: Offset the start number of the result.
-
-        """
-        arguments = "?q=%s" % self._parseword(query)
-        arguments += "&prefix=%s" % bool(prefix).lower() if prefix else ""
-        arguments += "&regions=%s" % regions if regions else ""
-        arguments += "&limit=%s" % limit if limit else ""
-        arguments += "&offset=%s" % offset if offset else ""
-
-        return self._request(category='search', arguments=arguments)
 
     def sentences(self, word):
         """Retrieve list of sentences and list of senses (English
@@ -194,28 +236,61 @@ class OxfordDictionary(object):
         :word: An Entry identifier. Case-sensitive.
 
         """
-        return self._request(self._parseword(word), 'sentences',
-                             category='entries')
+
+        return self._request('entries', self.lang, word, 'sentences')
+
 
     def utility_languages(self):
-        return self._request(category='languages', set_lang='')
-        #pass
+        """Returns a list of monolingual and bilingual language datasets available in the API"""
+        
+        return self._request('languages')
 
-    def utility_filters(self, entpoint=''):
-        # return self._request(category='filters', )
-        pass
 
-    def utility_lexicalcategories(self, language):
-        pass
+    def utility_filters(self, endpoint=''):
+        """Returns a list of all the valid filters for a given endpoint to construct API calls."""
+        
+        req_args = ['filters']
 
-    def utility_registers(self, source_lang, target_lang=''):
-        pass
+        if endpoint:
+            req_args.append(endpoint)
 
-    def utility_domains(self, source_lang, target_lang=''):
-        pass
+        return self._request(*req_args)
 
-    def utility_regions(self, source_lang):
-        pass
 
-    def utility_grammatiocalFeatures(self, source_lang):
-        pass
+    def utility_lexicalcategories(self, endpoint):
+        """Returns a list of available lexical categories for a given language dataset."""
+        
+        return self._request('lexicalcategories', endpoint)
+
+
+    def utility_registers(self, target_register_language=''):
+        """Returns a list of the available registers for a given bilingual language dataset."""
+
+        req_args = ['registers', self.lang]
+        
+        if target_register_language:
+            req_args.append(target_register_language)
+
+        return self._request(*req_args)
+
+
+    def utility_domains(self, target_domains_language=''):
+        """Returns a list of the available domains for a given monolingual language dataset. """
+
+        req_args = ['domains', self.lang]
+        if target_domains_language:
+            req_args.append(target_domain_language)
+
+        return self._request(*req_args)
+        
+
+    def utility_regions(self):
+        """Returns a list of the available regions for a given monolingual language dataset."""
+
+        return self._request('regions', self.lang)
+
+
+    def utility_grammatiocalFeatures(self):
+        """Returns a list of the available grammatical features for a given language dataset."""
+        
+        return self._request('grammaticalFeatures', self.lang)

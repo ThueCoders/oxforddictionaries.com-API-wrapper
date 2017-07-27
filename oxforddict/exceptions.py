@@ -1,7 +1,3 @@
-#!/bin/env python3
-
-
-
 class OxfordDictException(Exception):
     def __init__(self, statuscode, msg):
         self.statuscode = statuscode
