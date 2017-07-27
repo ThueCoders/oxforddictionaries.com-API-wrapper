@@ -55,9 +55,10 @@ class TestOxfordDictLib(unittest.TestCase):
     def test_entries_with_filters(self):
         pass
 
-    
+
     def test_thesaurus(self):
         pass
+
 
 
 if __name__ == '__main__':
